@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WPS Terrain Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+:root {
+  --bg: #0d0f14;
+  --bg2: #13161e;
+  --bg3: #1a1e28;
+  --border: #2a2f3e;
+  --border2: #3a4055;
+  --accent: #4af0a0;
+  --accent2: #1fff7a;
+  --accent-dim: rgba(74,240,160,0.12);
+  --accent-dim2: rgba(74,240,160,0.06);
+  --warn: #f0c84a;
+  --err: #f06060;
+  --text: #d8dce8;
+  --text2: #8892aa;
+  --text3: #5a6278;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* ---- Layout ---- */
+.shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: 52px 1fr;
+  min-height: 100vh;
+}
+
+/* ---- Header ---- */
+header {
+  grid-column: 1 / -1;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 16px;
+}
+.logo {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.logo span { color: var(--text2); font-weight: 400; }
+.step-pills {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  color: var(--text3);
+  background: transparent;
+  transition: all 0.2s;
+}
+.pill.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.pill.done {
+  border-color: var(--border2);
+  color: var(--text2);
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 20px 0;
+  overflow-y: auto;
+}
+.sb-section {
+  padding: 0 16px 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+.sb-section:last-child { border-bottom: none; }
+.sb-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 14px 0 10px;
+  display: block;
+}
+.field { margin-bottom: 10px; }
+.field label {
+  display: block;
+  font-size: 11px;
+  color: var(--text2);
+  margin-bottom: 4px;
+  font-family: var(--mono);
+}
+.field input, .field select {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  transition: border-color 0.15s;
+  outline: none;
+}
+.field input:focus, .field select:focus {
+  border-color: var(--accent);
+}
+.field select option { background: var(--bg2); }
+
+.upload-zone {
+  border: 1px dashed var(--border2);
+  border-radius: 4px;
+  padding: 14px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg3);
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-dim2);
+}
+.upload-zone input { display: none; }
+.upload-zone .uz-icon {
+  font-size: 20px;
+  margin-bottom: 4px;
+  display: block;
+  color: var(--text3);
+}
+.upload-zone .uz-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+.upload-zone.has-file { border-color: var(--accent); background: var(--accent-dim2); }
+.upload-zone.has-file .uz-icon { color: var(--accent); }
+.upload-zone.has-file .uz-text { color: var(--accent); }
+
+.run-btn {
+  width: calc(100% - 32px);
+  margin: 14px 16px 0;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.run-btn:hover { background: var(--accent2); }
+.run-btn:disabled { background: var(--border2); color: var(--text3); cursor: not-allowed; }
+
+/* ---- Main panel ---- */
+.main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  padding: 0 20px;
+}
+.tab {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 14px 16px;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.panel {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+.panel.active { display: flex; flex-direction: column; gap: 20px; }
+
+/* ---- Preview canvas ---- */
+.canvas-wrap {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 16px;
+}
+.canvas-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.canvas-label .badge {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+canvas {
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+/* ---- Stats grid ---- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.stat-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+.stat-card .sc-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.stat-card .sc-val {
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.stat-card .sc-unit {
+  font-size: 11px;
+  color: var(--text2);
+  font-weight: 400;
+}
+
+/* ---- Code viewer ---- */
+.code-block {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.code-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+}
+.code-filename {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  flex: 1;
+}
+.code-copy {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.code-copy:hover { border-color: var(--accent); color: var(--accent); }
+pre {
+  margin: 0;
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 340px;
+  overflow-y: auto;
+}
+pre .kw { color: var(--accent); }
+pre .cm { color: var(--text3); }
+pre .val { color: var(--warn); }
+pre .str { color: #88d4f0; }
+
+/* ---- Log ---- */
+.log-wrap {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.log-body {
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.8;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.log-line { display: flex; gap: 10px; }
+.log-line .ts { color: var(--text3); min-width: 60px; }
+.log-line .ok { color: var(--accent); }
+.log-line .info { color: var(--text2); }
+.log-line .warn { color: var(--warn); }
+.log-line .err { color: var(--err); }
+
+/* ---- Download ---- */
+.dl-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dl-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.dl-card .dc-icon {
+  font-size: 22px;
+  width: 36px;
+  text-align: center;
+}
+.dl-card .dc-info { flex: 1; }
+.dl-card .dc-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.dl-card .dc-desc { font-size: 11px; color: var(--text2); }
+.dl-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.dl-btn:hover { background: var(--accent-dim); }
+.dl-btn:disabled { border-color: var(--border); color: var(--text3); cursor: not-allowed; }
+
+.big-dl-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 28px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-start;
+}
+.big-dl-btn:hover { background: var(--accent2); }
+.big-dl-btn:disabled { background: var(--border2); color: var(--text3); cursor: not-allowed; }
+
+/* ---- Empty state ---- */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text3);
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 60px 20px;
+}
+.empty-icon { font-size: 36px; opacity: 0.4; }
+
+/* Instructions */
+.instructions {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 14px 16px;
+}
+.instructions h3 {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 8px;
+  letter-spacing: 0.06em;
+}
+.instructions ol {
+  padding-left: 18px;
+  color: var(--text2);
+  font-size: 13px;
+  line-height: 1.9;
+}
+.instructions code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 5px;
+  color: var(--text);
+}
+
+.color-scale {
+  display: flex;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.color-scale div { flex: 1; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- Header -->
+<header>
+  <div class="logo">WPS<span>://</span>terrain-generator</div>
+  <div class="step-pills">
+    <div class="pill active" id="pill-1">01 load</div>
+    <div class="pill" id="pill-2">02 configure</div>
+    <div class="pill" id="pill-3">03 generate</div>
+    <div class="pill" id="pill-4">04 download</div>
+  </div>
+</header>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+
+  <div class="sb-section">
+    <span class="sb-label">01 — terrain file</span>
+    <div class="upload-zone" id="dropzone" onclick="document.getElementById('csv-input').click()">
+      <input type="file" id="csv-input" accept=".csv,.txt">
+      <span class="uz-icon">⬆</span>
+      <div class="uz-text" id="uz-text">Drop CSV or click<br><small style="color:var(--text3)">columns: x, y, z (metres)</small></div>
+    </div>
+  </div>
+
+  <div class="sb-section">
+    <span class="sb-label">02 — domain</span>
+    <div class="field">
+      <label>Centre latitude (°N)</label>
+      <input type="number" id="ref_lat" value="57.13" step="0.001" placeholder="e.g. 57.13">
+    </div>
+    <div class="field">
+      <label>Centre longitude (°E)</label>
+      <input type="number" id="ref_lon" value="-7.37" step="0.001" placeholder="e.g. -7.37">
+    </div>
+    <div class="field">
+      <label>Grid spacing dx (m)</label>
+      <input type="number" id="dx" value="100" min="1" step="10">
+    </div>
+    <div class="field">
+      <label>Grid spacing dy (m)</label>
+      <input type="number" id="dy" value="100" min="1" step="10">
+    </div>
+    <div class="field">
+      <label>Grid points E-W (e_we)</label>
+      <input type="number" id="e_we" value="120" min="10" step="1">
+    </div>
+    <div class="field">
+      <label>Grid points N-S (e_sn)</label>
+      <input type="number" id="e_sn" value="110" min="10" step="1">
+    </div>
+  </div>
+
+  <div class="sb-section">
+    <span class="sb-label">03 — projection</span>
+    <div class="field">
+      <label>Map projection</label>
+      <select id="map_proj">
+        <option value="lambert">Lambert conformal (recommended)</option>
+        <option value="mercator">Mercator</option>
+        <option value="lat-lon">Lat-lon (equidistant)</option>
+      </select>
+    </div>
+    <div class="field" id="truelat1-wrap">
+      <label>True latitude 1 (°) <span style="color:var(--accent);font-size:10px">auto</span></label>
+      <input type="number" id="truelat1" value="42.1" step="1">
+    </div>
+    <div class="field" id="truelat2-wrap">
+      <label>True latitude 2 (°) <span style="color:var(--accent);font-size:10px">auto</span></label>
+      <input type="number" id="truelat2" value="72.1" step="1">
+    </div>
+    <div class="field">
+      <label>WPS_GEOG path (on your machine)</label>
+      <input type="text" id="geog_path" value="/opt/WPS_GEOG" placeholder="/path/to/WPS_GEOG">
+    </div>
+    <div class="field">
+      <label>Custom terrain dataset name</label>
+      <input type="text" id="ds_name" value="custom_hgt" placeholder="custom_hgt">
+    </div>
+  </div>
+
+  <button class="run-btn" id="run-btn" onclick="run()" disabled>
+    ▶ GENERATE WPS FILES
+  </button>
+
+</aside>
+
+<!-- Main -->
+<main class="main">
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('preview')">preview</div>
+    <div class="tab" onclick="switchTab('files')">generated files</div>
+    <div class="tab" onclick="switchTab('log')">log</div>
+    <div class="tab" onclick="switchTab('download')">download</div>
+    <div class="tab" onclick="switchTab('instructions')">instructions</div>
+  </div>
+
+  <!-- Preview panel -->
+  <div class="panel active" id="panel-preview">
+    <div class="empty-state" id="empty-preview">
+      <div class="empty-icon">◻</div>
+      <div>Load a CSV to preview terrain</div>
+    </div>
+    <div id="preview-content" style="display:none; flex-direction:column; gap:16px;">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="canvas-wrap">
+        <div class="canvas-label">
+          terrain elevation map
+          <span class="badge" id="grid-badge"></span>
+        </div>
+        <div class="color-scale" id="color-scale"></div>
+        <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:8px;">
+          <span id="cs-min"></span><span id="cs-max"></span>
+        </div>
+        <canvas id="terrain-canvas"></canvas>
+      </div>
+      <div class="canvas-wrap" id="wrf-domain-wrap" style="display:none;">
+        <div class="canvas-label">WRF domain overlay <span class="badge">configured domain</span></div>
+        <canvas id="domain-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Files panel -->
+  <div class="panel" id="panel-files">
+    <div class="empty-state" id="empty-files">
+      <div class="empty-icon">◻</div>
+      <div>Click "Generate WPS Files" to produce outputs</div>
+    </div>
+    <div id="files-content" style="display:none;flex-direction:column;gap:16px;">
+    </div>
+  </div>
+
+  <!-- Log panel -->
+  <div class="panel" id="panel-log">
+    <div class="log-wrap">
+      <div class="code-header">
+        <div class="code-filename">generation log</div>
+      </div>
+      <div class="log-body" id="log-body">
+        <div class="log-line"><span class="ts">00:00</span><span class="info">WPS Terrain Generator ready. Load a CSV to begin.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download panel -->
+  <div class="panel" id="panel-download">
+    <div class="empty-state" id="empty-dl">
+      <div class="empty-icon">◻</div>
+      <div>Generate files first</div>
+    </div>
+    <div id="dl-content" style="display:none; flex-direction:column; gap:16px;">
+      <div class="dl-section" id="dl-section"></div>
+      <button class="big-dl-btn" id="zip-btn" onclick="downloadZip()">↓ Download all as .zip</button>
+    </div>
+  </div>
+
+  <!-- Instructions panel -->
+  <div class="panel active" id="panel-instructions" style="display:none;">
+    <div class="instructions">
+      <h3>HOW TO USE THIS APP</h3>
+      <ol>
+        <li>Upload your terrain CSV with columns <code>x</code>, <code>y</code>, <code>z</code> (all in metres, local coordinates).</li>
+        <li>Set your domain centre (real-world lat/lon of the terrain's centre point).</li>
+        <li>Set <code>dx</code>, <code>dy</code> (WRF grid spacing in metres) and <code>e_we</code>/<code>e_sn</code> (number of grid points). Recommended: start at 100–500 m, ≥100×100 points.</li>
+        <li>Leave projection as Lambert conformal unless you have a reason to change it.</li>
+        <li>Set your <code>WPS_GEOG</code> path to where you downloaded the mandatory geographic data on your machine.</li>
+        <li>Click <strong>Generate WPS Files</strong>. The app reprojects your terrain, resamples it to the WRF grid, and builds all required files.</li>
+        <li>Download the ZIP. It contains: <code>namelist.wps</code>, <code>GEOGRID.TBL.patch</code>, and a <code>custom_hgt/</code> folder with the binary tile + <code>index</code>.</li>
+      </ol>
+    </div>
+    <div class="instructions" style="border-left-color: var(--warn);">
+      <h3 style="color:var(--warn);">ON YOUR WRF MACHINE</h3>
+      <ol>
+        <li>Copy <code>namelist.wps</code> into your WPS run directory.</li>
+        <li>Copy <code>custom_hgt/</code> folder into your <code>WPS_GEOG/</code> directory.</li>
+        <li>Append the <code>GEOGRID.TBL.patch</code> content to your <code>geogrid/GEOGRID.TBL</code>, replacing (or adding above) the existing <code>HGT_M</code> entry.</li>
+        <li>Run <code>./geogrid.exe</code> — output will be <code>geo_em.d01.nc</code>.</li>
+        <li>Verify terrain: <code>ncdump -v HGT_M geo_em.d01.nc | tail -30</code></li>
+      </ol>
+    </div>
+    <div class="instructions" style="border-left-color: var(--err);">
+      <h3 style="color:var(--err);">IMPORTANT NOTES</h3>
+      <ol>
+        <li>The binary tile is in WPS format: <strong>little-endian int16</strong>, row order <strong>bottom-to-top</strong> (south→north), scaled by 1 (integer metres). Elevations are rounded to the nearest metre.</li>
+        <li>The terrain is projected assuming a flat-earth approximation around the centre point (equirectangular). For domains &lt;50 km this is accurate to &lt;0.1%. For larger domains, use a real DEM (SRTM) instead.</li>
+        <li>The custom terrain only overrides <code>HGT_M</code>. All other fields (land use, soil, vegetation) still come from standard WPS_GEOG data.</li>
+        <li>If your CSV covers less area than the WRF domain, missing cells are filled with the CSV minimum elevation.</li>
+      </ol>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let csvData = null;   // {xs, ys, zs, nx, ny, dx_csv, dy_csv, zmin, zmax, xmin, xmax, ymin, ymax}
+let generated = {};   // filename → content (string or Uint8Array)
+let startTime = Date.now();
+
+// ── Logging ────────────────────────────────────────────────────────────────
+function log(msg, type='info') {
+  const el = document.getElementById('log-body');
+  const t = ((Date.now()-startTime)/1000).toFixed(1).padStart(5,'0');
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  div.innerHTML = `<span class="ts">${t}s</span><span class="${type}">${msg}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>{ p.classList.remove('active'); p.style.display='none'; });
+  event.target.classList.add('active');
+  const p = document.getElementById('panel-'+name);
+  p.style.display='flex';
+  p.classList.add('active');
+}
+
+// ── File upload ────────────────────────────────────────────────────────────
+document.getElementById('csv-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadCSV(e.target.files[0]);
+});
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) loadCSV(e.dataTransfer.files[0]);
+});
+
+function loadCSV(file) {
+  log(`Reading ${file.name} (${(file.size/1024).toFixed(0)} KB)…`);
+  const reader = new FileReader();
+  reader.onload = e => parseCSV(e.target.result, file.name);
+  reader.readAsText(file);
+}
+
+function parseCSV(text, fname) {
+  log('Parsing CSV…');
+  const lines = text.trim().split('\n');
+  let startRow = 0;
+  const first = lines[0].toLowerCase();
+  if (first.includes('x') || first.includes('col') || isNaN(parseFloat(first.split(',')[0]))) {
+    startRow = 1;
+    log(`Header detected: "${lines[0].trim()}"`, 'info');
+  }
+
+  // Parse into flat typed arrays for speed
+  const N = lines.length - startRow;
+  const xs=new Float64Array(N), ys=new Float64Array(N), zs=new Float64Array(N);
+  let count=0;
+  for (let i=startRow; i<lines.length; i++) {
+    const line=lines[i].trim(); if (!line) continue;
+    const c0=line.indexOf(',');
+    const c1=line.indexOf(',',c0+1);
+    if (c0<0||c1<0) continue;
+    const x=parseFloat(line), y=parseFloat(line.slice(c0+1)), z=parseFloat(line.slice(c1+1));
+    if (!isFinite(x)||!isFinite(y)||!isFinite(z)) continue;
+    xs[count]=x; ys[count]=y; zs[count]=z; count++;
+  }
+  log(`Parsed ${count} points`, 'info');
+
+  // Find unique sorted X and Y using Set then sort
+  const xSet=new Set(), ySet=new Set();
+  for (let i=0;i<count;i++) { xSet.add(xs[i]); ySet.add(ys[i]); }
+  const uxs=Array.from(xSet).sort((a,b)=>a-b);
+  const uys=Array.from(ySet).sort((a,b)=>a-b);
+  const nx=uxs.length, ny=uys.length;
+  const dx_csv = nx>1 ? Math.round((uxs[1]-uxs[0])*1000)/1000 : 1;
+  const dy_csv = ny>1 ? Math.round((uys[1]-uys[0])*1000)/1000 : 1;
+
+  // Build fast O(1) index map: xIdx and yIdx lookup tables
+  const xIdx=new Map(), yIdx=new Map();
+  uxs.forEach((v,i)=>xIdx.set(v,i));
+  uys.forEach((v,i)=>yIdx.set(v,i));
+
+  // Build 2D typed array grid: zGrid[iy*nx+ix] = elevation
+  const zGrid = new Float32Array(nx*ny).fill(NaN);
+  let zmin=Infinity, zmax=-Infinity, xmin=Infinity, xmax=-Infinity, ymin=Infinity, ymax=-Infinity;
+  for (let k=0;k<count;k++) {
+    const ix=xIdx.get(xs[k]), iy=yIdx.get(ys[k]);
+    if (ix===undefined||iy===undefined) continue;
+    zGrid[iy*nx+ix]=zs[k];
+    if (zs[k]<zmin) zmin=zs[k]; if (zs[k]>zmax) zmax=zs[k];
+    if (xs[k]<xmin) xmin=xs[k]; if (xs[k]>xmax) xmax=xs[k];
+    if (ys[k]<ymin) ymin=ys[k]; if (ys[k]>ymax) ymax=ys[k];
+  }
+  // Fill NaN gaps with zmin
+  for (let i=0;i<zGrid.length;i++) if (isNaN(zGrid[i])) zGrid[i]=zmin;
+
+  csvData = { nx, ny, dx_csv, dy_csv, zmin, zmax, xmin, xmax, ymin, ymax,
+              uxs, uys, zGrid, xIdx, yIdx };
+
+  log(`Loaded ${count} points → ${nx}×${ny} grid`, 'ok');
+  log(`Spatial extent: X [${xmin}, ${xmax}] m  Y [${ymin}, ${ymax}] m`, 'info');
+  log(`Elevation: min=${zmin} m, max=${zmax} m`, 'info');
+  log(`Native resolution: dx=${dx_csv} m, dy=${dy_csv} m`, 'info');
+
+  updateDZ(fname);
+  autoTruelats();
+  updateStats();
+  renderTerrainCanvas();
+  document.getElementById('run-btn').disabled = false;
+  setPill(2);
+}
+
+function autoTruelats() {
+  const lat = parseFloat(document.getElementById('ref_lat').value);
+  if (!isFinite(lat)) return;
+  const tl1 = Math.max(-89, lat - 15);
+  const tl2 = Math.min(89, lat + 15);
+  document.getElementById('truelat1').value = tl1.toFixed(1);
+  document.getElementById('truelat2').value = tl2.toFixed(1);
+  log(`Auto-set truelat1=${tl1.toFixed(1)}°, truelat2=${tl2.toFixed(1)}° (ref_lat ± 15°)`, 'info');
+}
+// Also recompute truelats when ref_lat changes manually
+document.getElementById('ref_lat').addEventListener('change', autoTruelats);
+
+function updateDZ(fname) {
+  const dz = document.getElementById('dropzone');
+  dz.classList.add('has-file');
+  document.getElementById('uz-text').textContent = fname;
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+function updateStats() {
+  if (!csvData) return;
+  const d = csvData;
+  const g = document.getElementById('stats-grid');
+  const items = [
+    ['grid size', `${d.nx}×${d.ny}`, 'pts'],
+    ['native dx/dy', d.dx_csv, 'm'],
+    ['x extent', (d.xmax-d.xmin).toFixed(0), 'm'],
+    ['y extent', (d.ymax-d.ymin).toFixed(0), 'm'],
+    ['z min', d.zmin.toFixed(1), 'm'],
+    ['z max', d.zmax.toFixed(1), 'm'],
+    ['z range', (d.zmax-d.zmin).toFixed(1), 'm'],
+    ['total points', (d.nx*d.ny).toLocaleString(), ''],
+  ];
+  g.innerHTML = items.map(([l,v,u])=>`
+    <div class="stat-card">
+      <div class="sc-label">${l}</div>
+      <div class="sc-val">${v}<span class="sc-unit"> ${u}</span></div>
+    </div>`).join('');
+  document.getElementById('empty-preview').style.display='none';
+  document.getElementById('preview-content').style.display='flex';
+}
+
+// ── Canvas terrain render ─────────────────────────────────────────────────
+function renderTerrainCanvas() {
+  if (!csvData) return;
+  const d = csvData;
+  const cnv = document.getElementById('terrain-canvas');
+  const W=d.nx, H=d.ny;
+  cnv.width=W; cnv.height=H;
+  const ctx=cnv.getContext('2d');
+  const img=ctx.createImageData(W,H);
+  const range = d.zmax-d.zmin || 1;
+
+  // d.zGrid[iy*nx+ix] directly — no lookup needed
+  for (let iy=0;iy<H;iy++) {
+    for (let ix=0;ix<W;ix++) {
+      const z = d.zGrid[iy*W+ix];
+      const t = (z-d.zmin)/range;
+      const [r,g,b] = terrainColor(t);
+      const idx=((H-1-iy)*W+ix)*4;  // flip Y for display (north=up)
+      img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+  document.getElementById('grid-badge').textContent=`${W}×${H} @ ${d.dx_csv}m`;
+
+  const cs=document.getElementById('color-scale');
+  cs.innerHTML='';
+  for (let i=0;i<64;i++) {
+    const [r,g,b]=terrainColor(i/63);
+    const div=document.createElement('div');
+    div.style.background=`rgb(${r},${g},${b})`;
+    cs.appendChild(div);
+  }
+  document.getElementById('cs-min').textContent=d.zmin.toFixed(0)+' m';
+  document.getElementById('cs-max').textContent=d.zmax.toFixed(0)+' m';
+}
+
+function terrainColor(t) {
+  // deep blue → green → tan → light grey/white
+  const stops=[
+    [0,[20,80,120]], [0.08,[40,140,80]], [0.35,[110,170,90]],
+    [0.6,[180,160,100]], [0.8,[200,185,155]], [1,[240,238,235]]
+  ];
+  for (let i=0;i<stops.length-1;i++) {
+    const [t0,c0]=stops[i], [t1,c1]=stops[i+1];
+    if (t>=t0 && t<=t1) {
+      const f=(t-t0)/(t1-t0);
+      return c0.map((v,k)=>Math.round(v+(c1[k]-v)*f));
+    }
+  }
+  return stops[stops.length-1][1];
+}
+
+// ── Main generation ────────────────────────────────────────────────────────
+async function run() {
+  if (!csvData) return;
+  log('─── Starting WPS file generation ───', 'ok');
+  setPill(3);
+  generated = {};
+
+  const ref_lat=parseFloat(document.getElementById('ref_lat').value);
+  const ref_lon=parseFloat(document.getElementById('ref_lon').value);
+  const dx=parseFloat(document.getElementById('dx').value);
+  const dy=parseFloat(document.getElementById('dy').value);
+  const e_we=parseInt(document.getElementById('e_we').value);
+  const e_sn=parseInt(document.getElementById('e_sn').value);
+  const map_proj=document.getElementById('map_proj').value;
+  const truelat1=parseFloat(document.getElementById('truelat1').value);
+  const truelat2=parseFloat(document.getElementById('truelat2').value);
+  const geog_path=document.getElementById('geog_path').value;
+  const ds_name=document.getElementById('ds_name').value.replace(/\s/g,'_');
+
+  // ── Step 1: build WRF grid in local metres ────────────────────────────
+  log('Building WRF grid coordinates…');
+  const domain_w = (e_we-1)*dx;
+  const domain_h = (e_sn-1)*dy;
+  log(`WRF domain: ${domain_w}m × ${domain_h}m  (${e_we}×${e_sn} pts at ${dx}×${dy}m)`);
+
+  // WRF grid x/y centres (local coords, origin = domain centre)
+  const wrf_xs=[], wrf_ys=[];
+  for (let i=0;i<e_we;i++) wrf_xs.push(-domain_w/2 + i*dx);
+  for (let j=0;j<e_sn;j++) wrf_ys.push(-domain_h/2 + j*dy);
+
+  // ── Step 2: resample CSV elevation to WRF grid ────────────────────────
+  log('Resampling terrain to WRF grid (bilinear)…');
+  const d=csvData;
+  const zGrid = resampleBilinear(d, wrf_xs, wrf_ys);
+  log(`Resampled ${e_we}×${e_sn} elevation values. Min=${Math.min(...zGrid).toFixed(1)}m Max=${Math.max(...zGrid).toFixed(1)}m`, 'ok');
+
+  // ── Step 3: build WPS binary tile ────────────────────────────────────
+  log('Writing WPS binary tile (little-endian int16, bottom-top)…');
+  const tile = buildBinaryTile(zGrid, e_we, e_sn);
+  const tileFilename = `00001-${String(e_we).padStart(5,'0')}.00001-${String(e_sn).padStart(5,'0')}`;
+  generated[`${ds_name}/${tileFilename}`] = tile;
+  log(`Binary tile: ${tileFilename} (${(tile.byteLength/1024).toFixed(1)} KB)`, 'ok');
+
+  // ── Step 4: build index file ──────────────────────────────────────────
+  log('Building index file…');
+  // Convert local metres to degrees for known_lat/known_lon (SW corner)
+  const sw_x = wrf_xs[0];
+  const sw_y = wrf_ys[0];
+  const R_earth = 6371000;
+  const known_lat = ref_lat + (sw_y / R_earth) * (180/Math.PI);
+  const known_lon = ref_lon + (sw_x / (R_earth * Math.cos(ref_lat*Math.PI/180))) * (180/Math.PI);
+  const deg_dx = dx / (R_earth * Math.cos(ref_lat*Math.PI/180)) * (180/Math.PI);
+  const deg_dy = dy / R_earth * (180/Math.PI);
+
+  const indexContent = buildIndexFile({e_we, e_sn, known_lat, known_lon, deg_dx, deg_dy});
+  generated[`${ds_name}/index`] = indexContent;
+  log(`Index file written. SW corner: lat=${known_lat.toFixed(6)}, lon=${known_lon.toFixed(6)}`, 'ok');
+  log(`Tile degrees: dx=${deg_dx.toFixed(7)}°, dy=${deg_dy.toFixed(7)}°`, 'info');
+
+  // ── Step 5: build namelist.wps ────────────────────────────────────────
+  log('Building namelist.wps…');
+  const namelist = buildNamelist({
+    ref_lat, ref_lon, dx, dy, e_we, e_sn, map_proj, truelat1, truelat2,
+    geog_path, ds_name
+  });
+  generated['namelist.wps'] = namelist;
+  log('namelist.wps written', 'ok');
+
+  // ── Step 6: GEOGRID.TBL patch ─────────────────────────────────────────
+  log('Building GEOGRID.TBL patch…');
+  const tblPatch = buildGEOGRIDtbl(ds_name);
+  generated['GEOGRID.TBL.patch'] = tblPatch;
+  log('GEOGRID.TBL.patch written', 'ok');
+
+  // ── Step 7: README ────────────────────────────────────────────────────
+  generated['README.txt'] = buildReadme({ds_name, e_we, e_sn, dx, dy, ref_lat, ref_lon, map_proj, geog_path});
+
+  log('─── Generation complete ───', 'ok');
+  log(`Total files: ${Object.keys(generated).length}`, 'info');
+
+  renderFilesPanel();
+  renderDownloadPanel();
+  setPill(4);
+
+  // switch to files tab
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>{ p.classList.remove('active'); p.style.display='none'; });
+  document.querySelector('.tab').nextElementSibling.classList.add('active');
+  const fp=document.getElementById('panel-files');
+  fp.style.display='flex'; fp.classList.add('active');
+}
+
+// ── Resample bilinear ──────────────────────────────────────────────────────
+function resampleBilinear(d, wrf_xs, wrf_ys) {
+  const nx_wrf=wrf_xs.length, ny_wrf=wrf_ys.length;
+  const result=new Float32Array(nx_wrf*ny_wrf);
+  for (let j=0;j<ny_wrf;j++) {
+    const wy=wrf_ys[j];
+    for (let i=0;i<nx_wrf;i++) {
+      result[j*nx_wrf+i]=sampleZ(d, wrf_xs[i], wy);
+    }
+  }
+  return result;
+}
+
+function sampleZ(d, wx, wy) {
+  // Out of bounds → fill with zmin
+  if (wx<d.xmin||wx>d.xmax||wy<d.ymin||wy>d.ymax) return d.zmin;
+
+  // Binary search in sorted unique arrays
+  const ix0=Math.max(0, Math.min(d.nx-2, bsearch(d.uxs, wx)));
+  const iy0=Math.max(0, Math.min(d.ny-2, bsearch(d.uys, wy)));
+  const ix1=ix0+1, iy1=iy0+1;
+  const x0=d.uxs[ix0], x1=d.uxs[ix1];
+  const y0=d.uys[iy0], y1=d.uys[iy1];
+  const tx=(x1>x0)?(wx-x0)/(x1-x0):0;
+  const ty=(y1>y0)?(wy-y0)/(y1-y0):0;
+  // Direct typed-array lookup: zGrid[iy*nx+ix]
+  const z00=d.zGrid[iy0*d.nx+ix0], z10=d.zGrid[iy0*d.nx+ix1];
+  const z01=d.zGrid[iy1*d.nx+ix0], z11=d.zGrid[iy1*d.nx+ix1];
+  return z00*(1-tx)*(1-ty)+z10*tx*(1-ty)+z01*(1-tx)*ty+z11*tx*ty;
+}
+
+function bsearch(arr, val) {
+  let lo=0,hi=arr.length-1;
+  while (lo<hi) { const mid=(lo+hi+1)>>1; if (arr[mid]<=val) lo=mid; else hi=mid-1; }
+  return lo;
+}
+
+// ── Build binary tile ──────────────────────────────────────────────────────
+function buildBinaryTile(zGrid, nx, ny) {
+  // WPS format: rows ordered south→north (j=0 is southernmost), west→east within row
+  // int16 little-endian
+  const buf=new ArrayBuffer(nx*ny*2);
+  const view=new DataView(buf);
+  let ptr=0;
+  // zGrid is stored [j=0..ny-1][i=0..nx-1] (j=0 = south)
+  for (let j=0;j<ny;j++) {
+    for (let i=0;i<nx;i++) {
+      const z=Math.round(zGrid[j*nx+i]);
+      const clamped=Math.max(-32768, Math.min(32767, z));
+      view.setInt16(ptr, clamped, true);  // little-endian
+      ptr+=2;
+    }
+  }
+  return new Uint8Array(buf);
+}
+
+// ── Build index file ───────────────────────────────────────────────────────
+function buildIndexFile({e_we, e_sn, known_lat, known_lon, deg_dx, deg_dy}) {
+  return `type = continuous
+signed = yes
+projection = regular_ll
+dx = ${deg_dx.toFixed(8)}
+dy = ${deg_dy.toFixed(8)}
+known_x = 1.0
+known_y = 1.0
+known_lat = ${known_lat.toFixed(8)}
+known_lon = ${known_lon.toFixed(8)}
+wordsize = 2
+tile_x = ${e_we}
+tile_y = ${e_sn}
+tile_z = 1
+tile_bdr = 0
+units = "m MSL"
+description = "Custom terrain height from user CSV"
+endian = little
+row_order = bottom_top
+missing_value = -32768.0
+`;
+}
+
+// ── Build namelist.wps ─────────────────────────────────────────────────────
+function buildNamelist({ref_lat, ref_lon, dx, dy, e_we, e_sn, map_proj, truelat1, truelat2, geog_path, ds_name}) {
+  const stand_lon = ref_lon.toFixed(3);
+  let projParams='';
+  if (map_proj==='lambert') {
+    projParams=` truelat1                    = ${truelat1},\n truelat2                    = ${truelat2},\n stand_lon                   = ${stand_lon},`;
+  } else if (map_proj==='mercator') {
+    projParams=` truelat1                    = ${truelat1},\n stand_lon                   = ${stand_lon},`;
+  } else if (map_proj==='lat-lon') {
+    projParams=` stand_lon                   = ${stand_lon},`;
+  }
+
+  // geog_data_res: custom dataset handles HGT_M; all other fields fall back to standard WPS_GEOG resolutions.
+  // The '+default' suffix means: use ds_name for any field that has a rel_path entry for it,
+  // and fall back to 'default' (the WPS standard 30s/2m/5m/10m data) for everything else.
+  // This ensures LANDUSE, SOILTEMP, SOILCTOP, SOILCBOT, GREENFRAC, ALBEDO12M, MAXSNOALB, SLOPECAT
+  // are all sourced from the standard WPS_GEOG directory unchanged.
+  const geog_res = `'${ds_name}+default'`;
+
+  return `&share
+ wrf_core                    = 'ARW',
+ max_dom                     = 1,
+ start_date                  = '2000-01-01_00:00:00',
+ end_date                    = '2000-01-01_00:00:00',
+ interval_seconds            = 21600,
+ io_form_geogrid             = 2,
+/
+
+&geogrid
+ parent_id                   = 1,
+ parent_grid_ratio           = 1,
+ i_parent_start              = 1,
+ j_parent_start              = 1,
+ e_we                        = ${e_we},
+ e_sn                        = ${e_sn},
+ dx                          = ${dx},
+ dy                          = ${dy},
+ map_proj                    = '${map_proj}',
+ ref_lat                     = ${ref_lat},
+ ref_lon                     = ${ref_lon},
+${projParams}
+ geog_data_res               = ${geog_res},
+ geog_data_path              = '${geog_path}',
+ opt_geogrid_tbl_path        = './geogrid/',
+/
+
+&ungrib
+ out_format                  = 'WPS',
+ prefix                      = 'FILE',
+/
+
+&metgrid
+ fg_name                     = 'FILE',
+ io_form_metgrid             = 2,
+/
+`;
+}
+
+// ── Build GEOGRID.TBL patch ────────────────────────────────────────────────
+function buildGEOGRIDtbl(ds_name) {
+  return `===============================================================
+!  WPS GEOGRID.TBL PATCH — generated by WPS Terrain Generator
+!
+!  INSTRUCTIONS:
+!  1. Open your geogrid/GEOGRID.TBL file
+!  2. Find the existing "name=HGT_M" entry
+!  3. INSERT the block below ABOVE it (priority=1 wins)
+!  4. Leave all other entries (LANDUSE, SOILTEMP, etc.) unchanged
+!     — they continue to use standard WPS_GEOG data
+===============================================================
+
+=======================================
+name=HGT_M
+        priority=1
+        dest_type=continuous
+        smooth_option=smth-desmth_special; smooth_passes=1
+        fill_missing=0.
+        interp_option=${ds_name}:average_gcell(4.0)+four_pt+search
+        interp_option=default:average_gcell(4.0)+four_pt+search
+        rel_path=${ds_name}:${ds_name}/
+
+=======================================
+! The following standard entry for HGT_M remains below this one.
+! geogrid uses priority=1 first; priority=2 (default) is the fallback.
+! DO NOT delete the original HGT_M entry — it handles any domain area
+! not covered by your custom tile.
+`;
+}
+
+// ── Build README ───────────────────────────────────────────────────────────
+function buildReadme({ds_name, e_we, e_sn, dx, dy, ref_lat, ref_lon, map_proj, geog_path}) {
+  return `WPS TERRAIN GENERATOR — GENERATED FILES
+=========================================
+Domain: ${e_we}x${e_sn} pts, dx=${dx}m dy=${dy}m
+Centre: lat=${ref_lat}, lon=${ref_lon}
+Projection: ${map_proj}
+WPS_GEOG: ${geog_path}
+
+FILES IN THIS ZIP
+-----------------
+namelist.wps          → Copy to your WPS run directory
+GEOGRID.TBL.patch     → Append/replace HGT_M block in geogrid/GEOGRID.TBL
+${ds_name}/
+  index               → Tile metadata (do not edit unless you know what you're doing)
+  00001-XXXXX.00001-YYYYY → Binary elevation tile (int16 LE, bottom-top)
+
+INSTALLATION
+------------
+1.  cp namelist.wps  /path/to/WPS/
+2.  cp -r ${ds_name}/  ${geog_path}/
+3.  Edit geogrid/GEOGRID.TBL — prepend GEOGRID.TBL.patch content before existing HGT_M
+4.  cd /path/to/WPS && ./geogrid.exe
+5.  Check output: geo_em.d01.nc
+
+VERIFY
+------
+ncdump -v HGT_M geo_em.d01.nc | tail -50
+`;
+}
+
+// ── Render files panel ─────────────────────────────────────────────────────
+function renderFilesPanel() {
+  const fc=document.getElementById('files-content');
+  document.getElementById('empty-files').style.display='none';
+  fc.style.display='flex';
+  fc.innerHTML='';
+  for (const [name, content] of Object.entries(generated)) {
+    if (content instanceof Uint8Array) {
+      const div=document.createElement('div');
+      div.className='code-block';
+      div.innerHTML=`<div class="code-header"><div class="code-filename">${name}</div><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">binary (${(content.byteLength/1024).toFixed(1)} KB)</span></div>
+      <pre style="color:var(--text3)">[binary data — int16 little-endian WPS tile]</pre>`;
+      fc.appendChild(div);
+    } else {
+      const div=document.createElement('div');
+      div.className='code-block';
+      const highlighted=highlightSyntax(content, name);
+      div.innerHTML=`<div class="code-header"><div class="code-filename">${name}</div><button class="code-copy" onclick="copyText(${JSON.stringify(content)}, this)">copy</button></div><pre>${highlighted}</pre>`;
+      fc.appendChild(div);
+    }
+  }
+}
+
+function highlightSyntax(text, fname) {
+  const esc = s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let t=esc(text);
+  if (fname.endsWith('.wps') || fname.endsWith('.TBL') || fname.endsWith('.patch')) {
+    t=t.replace(/(=\s*)([\d\.\-]+)/g, '$1<span class="val">$2</span>');
+    t=t.replace(/(=\s*)'([^']+)'/g, "$1'<span class=\"str\">$2</span>'");
+    t=t.replace(/^(\s*[a-zA-Z_]+)\s*=/gm,'<span class="kw">$1</span> =');
+    t=t.replace(/(^\s*!.*$)/gm,'<span class="cm">$1</span>');
+    t=t.replace(/(^\s*&\w+)/gm,'<span class="kw">$1</span>');
+  }
+  if (fname==='README.txt') {
+    t=t.replace(/^([A-Z ]+\n[-=]+)/gm,'<span class="kw">$1</span>');
+  }
+  return t;
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(()=>{
+    btn.textContent='copied!';
+    setTimeout(()=>btn.textContent='copy',1500);
+  });
+}
+
+// ── Render download panel ──────────────────────────────────────────────────
+function renderDownloadPanel() {
+  const section=document.getElementById('dl-section');
+  document.getElementById('empty-dl').style.display='none';
+  document.getElementById('dl-content').style.display='flex';
+  section.innerHTML='';
+  const icons={'namelist.wps':'⚙','GEOGRID.TBL.patch':'🔧','README.txt':'📄'};
+  const descs={
+    'namelist.wps':'Main WPS configuration — copy to WPS run dir',
+    'GEOGRID.TBL.patch':'Append to geogrid/GEOGRID.TBL — adds custom HGT_M source',
+    'README.txt':'Installation instructions',
+  };
+  for (const [name, content] of Object.entries(generated)) {
+    const isDir=name.includes('/');
+    const icon=isDir?'📁':(icons[name]||'📄');
+    const desc=descs[name]||(content instanceof Uint8Array?`WPS binary tile (${(content.byteLength/1024).toFixed(1)} KB)`:`${name.split('/').pop()}`);
+    const card=document.createElement('div');
+    card.className='dl-card';
+    card.innerHTML=`<div class="dc-icon">${icon}</div>
+    <div class="dc-info"><div class="dc-name">${name}</div><div class="dc-desc">${desc}</div></div>
+    <button class="dl-btn" onclick="downloadSingle(${JSON.stringify(name)})">↓ save</button>`;
+    section.appendChild(card);
+  }
+}
+
+function downloadSingle(name) {
+  const content=generated[name];
+  const fname=name.split('/').pop();
+  if (content instanceof Uint8Array) {
+    const blob=new Blob([content],{type:'application/octet-stream'});
+    triggerDl(blob,fname);
+  } else {
+    const blob=new Blob([content],{type:'text/plain'});
+    triggerDl(blob,fname);
+  }
+}
+
+async function downloadZip() {
+  const zip=new JSZip();
+  for (const [name, content] of Object.entries(generated)) {
+    if (content instanceof Uint8Array) {
+      zip.file(name, content);
+    } else {
+      zip.file(name, content);
+    }
+  }
+  const blob=await zip.generateAsync({type:'blob'});
+  triggerDl(blob,'wps_terrain_files.zip');
+}
+
+function triggerDl(blob, fname) {
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=fname;
+  a.click();
+}
+
+// ── Pill state ─────────────────────────────────────────────────────────────
+function setPill(n) {
+  for (let i=1;i<=4;i++) {
+    const p=document.getElementById('pill-'+i);
+    if (i<n) { p.classList.add('done'); p.classList.remove('active'); }
+    else if (i===n) { p.classList.add('active'); p.classList.remove('done'); }
+    else { p.classList.remove('active','done'); }
+  }
+}
+
+// Show instructions tab by default if no file loaded
+document.querySelectorAll('.tab').forEach((t,i)=>{ if(i===4) t.click(); });
+</script>
+</body>
+</html>
